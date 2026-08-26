@@ -1,0 +1,98 @@
+diff --git a/hw/virtio/virtio-nsm.c b/hw/virtio/virtio-nsm.c
+index 1a2f3699cf..0000000000 100644
+--- a/hw/virtio/virtio-nsm.c
++++ b/hw/virtio/virtio-nsm.c
+@@ -8,6 +8,10 @@
+ #include "qemu/osdep.h"
+ #include "qemu/iov.h"
+ #include "qemu/guest-random.h"
++#include <arpa/inet.h>
++#include <sys/socket.h>
++#include <sys/time.h>
++#include <sys/un.h>
+ #include "qapi/error.h"
+ 
+ #include "crypto/hash.h"
+@@ -44,6 +48,74 @@
+     NSM_INTERNAL_ERROR = 7,
+ };
+ 
++/*
++ * Best-effort tap for local debugging.  It is deliberately outside the NSM
++ * response path: errors and a missing peer are ignored.
++ * Frame format: big-endian u32 CBOR length followed by the raw CBOR request.
++ */
++static void nsm_dump_request(const struct iovec *request)
++{
++    static const char path[] = "/tmp/nsm-dump.sock";
++    struct sockaddr_un addr = { 0 };
++    struct timeval timeout = {
++        .tv_sec = 0,
++        .tv_usec = 100000,
++    };
++    uint32_t length;
++    const uint8_t *buf;
++    size_t remaining;
++    int fd;
++
++    if (request->iov_len > UINT32_MAX) {
++        return;
++    }
++
++    fprintf(stderr, "[NSM] len=%zu raw=", request->iov_len);
++    for (size_t i = 0; i < request->iov_len; ++i) {
++        fprintf(stderr, "%02x", ((const uint8_t *)request->iov_base)[i]);
++    }
++    fputc('\n', stderr);
++
++    fd = socket(AF_UNIX, SOCK_STREAM, 0);
++    if (fd < 0) {
++        return;
++    }
++    setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
++
++    addr.sun_family = AF_UNIX;
++    g_strlcpy(addr.sun_path, path, sizeof(addr.sun_path));
++    if (connect(fd, (const struct sockaddr *)&addr, sizeof(addr)) < 0) {
++        close(fd);
++        return;
++    }
++
++    length = htonl(request->iov_len);
++    buf = (const uint8_t *)&length;
++    remaining = sizeof(length);
++    while (remaining > 0) {
++        ssize_t rc = send(fd, buf, remaining, MSG_NOSIGNAL);
++        if (rc <= 0) {
++            close(fd);
++            return;
++        }
++        buf += rc;
++        remaining -= rc;
++    }
++
++    buf = request->iov_base;
++    remaining = request->iov_len;
++    while (remaining > 0) {
++        ssize_t rc = send(fd, buf, remaining, MSG_NOSIGNAL);
++        if (rc <= 0) {
++            close(fd);
++            return;
++        }
++        buf += rc;
++        remaining -= rc;
++    }
++    close(fd);
++}
++
+ static const char *error_string(enum NSMResponseTypes type)
+ {
+     const char *str;
+@@ -1577,6 +1646,7 @@ static void handle_input(VirtIODevice *vdev, VirtQueue *vq)
+         goto cleanup;
+     }
+ 
++    nsm_dump_request(&req);
+     res.iov_base = g_malloc(NSM_RESPONSE_BUF_SIZE);
+     res.iov_len = NSM_RESPONSE_BUF_SIZE;
+ 

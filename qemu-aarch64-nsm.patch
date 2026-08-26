@@ -1,0 +1,12 @@
+diff --git a/configs/devices/aarch64-softmmu/default.mak b/configs/devices/aarch64-softmmu/default.mak
+index 4a48d6fdfb..ea30fa1a89 100644
+--- a/configs/devices/aarch64-softmmu/default.mak
++++ b/configs/devices/aarch64-softmmu/default.mak
+@@ -1,4 +1,7 @@
+ # Default configuration for aarch64-softmmu
+ 
++# Expose the generic virtio-nsm device on the Arm "virt" machine.
++CONFIG_VIRTIO_NSM=y
++
+ # We support all the 32 bit boards so need all their config
+ include ../arm-softmmu/default.mak

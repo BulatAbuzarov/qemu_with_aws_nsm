@@ -1,0 +1,6 @@
+.work/
+__pycache__/
+*.py[cod]
+config-temp/
+config.log
+orb_venv/
